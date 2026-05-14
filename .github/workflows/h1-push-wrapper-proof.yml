@@ -1,0 +1,29 @@
+name: H1 Push Wrapper Proof
+
+on:
+  push:
+    branches:
+      - h1-push-wrapper-proof
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Non-destructive parent shell proof
+        shell: bash
+        run: |
+          set +e
+          "$GITHUB_WORKSPACE/scripts/git-push.sh" origin "$(printf 'H1_PUSH_WRAPPER_PARENT_SHELL_EVAL\n' >&2)"
+          status=$?
+          echo "wrapper_exit=$status"
+          if [ "$status" -ne 1 ]; then
+            echo "proof_result=unexpected_exit"
+            exit 1
+          fi
+          echo "proof_result=parent_shell_marker_printed_and_wrapper_rejected_empty_ref"
