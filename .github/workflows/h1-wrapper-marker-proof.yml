@@ -1,0 +1,56 @@
+name: H1 Wrapper Marker Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/h1-wrapper-marker-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Non-destructive parent shell marker proof
+        shell: bash
+        run: |
+          set +e
+
+          MARKER="$RUNNER_TEMP/h1-wrapper-boundary-proof.txt"
+          rm -f "$MARKER"
+
+          printf 'before_wrapper_call=%s\n' "$(date -u +%FT%TZ)"
+
+          "$GITHUB_WORKSPACE/scripts/git-push.sh" origin "$(
+            {
+              printf 'parent_shell_executed=True\n'
+              printf 'executed_before_wrapper_validation=True\n'
+              printf 'parent_shell_executed_at=%s\n' "$(date -u +%FT%TZ)"
+            } > "$MARKER"
+          )"
+          status=$?
+
+          if [ -f "$MARKER" ]; then
+            cat "$MARKER"
+          else
+            echo "marker_file_missing=True"
+          fi
+
+          printf 'wrapper_exit=%s\n' "$status"
+          printf 'after_wrapper_return=%s\n' "$(date -u +%FT%TZ)"
+
+          if [ "$status" -ne 1 ]; then
+            echo "proof_result=unexpected_wrapper_exit"
+            exit 1
+          fi
+
+          grep -q '^parent_shell_executed=True$' "$MARKER"
+          grep -q '^executed_before_wrapper_validation=True$' "$MARKER"
+          echo "proof_result=parent_shell_side_effect_before_wrapper_validation"
