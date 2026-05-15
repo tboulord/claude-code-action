@@ -1,0 +1,33 @@
+name: H1 Claude Wrapper Public Proof
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  claude:
+    if: |
+      contains(github.event.comment.body, '@claude') &&
+      contains(github.event.comment.body, 'H1_WRAPPER_PROOF')
+    runs-on: ubuntu-latest
+    env:
+      H1_DUMMY_SUPPLY_CHAIN_SECRET: ${{ secrets.H1_DUMMY_SUPPLY_CHAIN_SECRET }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code public wrapper proof
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_non_write_users: "*"
